@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const mongoose = require("mongoose");
-
+const { initDb, isOnline } = require("../redtech/db");
 
 const storePath = path.join(__dirname, "..", "database", "redtech_tokens.json");
 const encryptionKey = crypto.createHash("sha256").update(String(process.env.REDTECH_TOKEN_SECRET || process.env.SESSION_SECRET || "redtech-development-secret")).digest();
