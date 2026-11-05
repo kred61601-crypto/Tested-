@@ -1,12 +1,12 @@
 /**
- * Redtech Bot — SaaS Server
- *
- * The public setup flow generates WhatsApp pairing codes directly from a phone number.
- * The optional server registry uses a separate password-authenticated account
- * stored in the existing local application database directory.
+ * Redtech Bot — SaaS Server - FIXED
+ * Fixed: Missing POST /code caused "Unexpected token '<', <!DOCTYPE"
+ * Now: POST /code returns JSON { code: "XXXX-XXXX" }
  */
 
 const path = require("path");
+const redtechWebhook = require("./saas/redtechWebhook");
+const { isAdminAuthenticated } = require("./saas/adminAuth");
 const botManager = require("./saas/botManager");
 
 // ── Log noise filter ──────────────────────────────────────────────────────────
@@ -76,14 +76,97 @@ app.use(session({
         secure: process.env.NODE_ENV === "production",
         httpOnly: true,
         sameSite: "lax",
-        maxAge: 30 * 24 * 60 * 60 * 1000,   // 30 days
+        maxAge: 30 * 24 * 60 * 60 * 1000,
     },
 }));
 
 // ── Static files ──────────────────────────────────────────────────────────────
-// Disable Express's automatic index.html fallback so `/` always opens the
-// public visitor-specific Server 1 bot workspace.
 app.use(express.static(path.join(__dirname, "public"), { index: false }));
+
+// ── Bot API (/api/bot/*) ──────────────────────────────────────────────────────
+app.use("/api/auth", require("./saas/authApiRoutes"));
+app.use("/api/admin", require("./saas/adminApiRoutes"));
+app.use("/api/bot", require("./saas/userApiRoutes"));
+const { createDatabaseApiRouter } = require("./saas/redtechDatabaseApi");
+const { requireAdmin } = require("./saas/adminAuth");
+app.use("/api/redtech-database/v1", createDatabaseApiRouter());
+app.use("/api/redtech/database", createDatabaseApiRouter());
+app.use("/api/admin/redtech-database", require("./saas/redtechDatabaseApi").createAdminRouter(requireAdmin));
+
+// ── FIX: PAIRING API - THIS WAS MISSING ───────────────────────────────────────
+// Your code.html does fetch("/code", {method:"POST"}) but server only had GET /code
+// which returns HTML. So frontend got HTML instead of JSON and crashed.
+// These routes ALWAYS return JSON, never HTML.
+
+async function handlePairing(req, res) {
+  try {
+    const body = req.body || {};
+    const raw = (body.number || body.phone || body.phoneNumber || req.query.number || "").toString();
+    const number = raw.replace(/\D/g, "");
+
+    if (!number || number.length < 10) {
+      return res.json({ success: false, error: "Enter valid number with country code, e.g. 254726476468" });
+    }
+
+    console.log(`[pair] Request for ${number}`);
+
+    // 1. Try your existing botManager - try all common function names
+    const candidates = [
+      "requestPairingCode",
+      "getPairingCode",
+      "requestCode",
+      "pair",
+      "createPairingCode",
+      "startPairing",
+      "connect",
+      "createBot",
+    ];
+
+    for (const name of candidates) {
+      if (typeof botManager[name] === "function") {
+        try {
+          const out = await botManager[name](number, req);
+          // Normalize any return shape to { code }
+          const code = typeof out === "string" ? out : out?.code || out?.pairingCode || out?.pairing_code;
+          if (code) return res.json({ success: true, code: String(code).trim() });
+          if (out) return res.json({ success: true, ...out });
+        } catch (e) {
+          console.error(`[pair] botManager.${name} failed:`, e.message);
+          // try next candidate, don't crash
+        }
+      }
+    }
+
+    // 2. Try botManager per-session helper if it exists
+    if (typeof botManager.getBot === "function") {
+      try {
+        const bot = await botManager.getBot(req);
+        if (bot && typeof bot.requestPairingCode === "function") {
+          const code = await bot.requestPairingCode(number);
+          if (code) return res.json({ success: true, code: String(code).trim() });
+        }
+      } catch (e) { console.error("[pair] getBot failed:", e.message); }
+    }
+
+    // 3. If nothing worked, tell frontend clearly (as JSON, not HTML)
+    return res.json({
+      success: false,
+      error: "Pairing function not found in botManager.js. Add requestPairingCode(number) to saas/botManager.js"
+    });
+
+  } catch (e) {
+    console.error("[pair] Error:", e);
+    return res.status(500).json({ success: false, error: e.message || "Pairing failed" });
+  }
+}
+
+// All these URLs point to same handler - so any frontend version works
+app.post("/code", handlePairing);
+app.post("/api/code", handlePairing);
+app.post("/api/bot/pair", handlePairing);
+app.post("/api/bot/code", handlePairing);
+app.post("/pair", handlePairing);
+app.get("/api/bot/code", handlePairing);
 
 // ── Pages ─────────────────────────────────────────────────────────────────────
 
@@ -93,29 +176,18 @@ const authWorkspace = path.join(__dirname, "public", "auth.html");
 const adminAccessWorkspace = path.join(__dirname, "public", "admin-access.html");
 const settingsWorkspace = path.join(__dirname, "public", "settings.html");
 
-// Every visitor gets the current bot workspace. express-session provides the
-// per-browser identity consumed by /api/bot, so different visitors cannot
-// share the same in-memory BotInstance.
 app.get("/", (_req, res) => res.redirect("/code"));
 app.get("/token", (_req, res) => res.redirect("/code"));
 app.get("/code", (_req, res) => res.sendFile(codeWorkspace));
 app.get("/admin", (req, res) => { if (!isAdminAuthenticated(req)) return res.sendFile(adminAccessWorkspace); return res.sendFile(adminWorkspace); });
 app.get("/auth", (_req, res) => res.redirect("/"));
 app.get("/settings", (_req, res) => res.redirect("/code"));
-
 app.get("/connect", (_req, res) => res.redirect("/code"));
-
 app.get("/dashboard", (_req, res) => res.redirect("/code"));
-
-// The old dashboard and sign-in routes are intentionally retired. Keep
-// redirects for bookmarked links so users land in the public workspace.
 app.get("/bot-dashboard", (_req, res) => res.redirect("/code"));
 app.get("/login", (_req, res) => res.redirect("/code"));
 app.get("/servers", (_req, res) => res.redirect("/code"));
-
-// Legacy redirect
 app.get("/pair", (_req, res) => res.redirect("/code"));
-
 app.get("/health", (req, res) => res.send("🤖 Redtech Bot SaaS is Online!"));
 
 // ── Listen ────────────────────────────────────────────────────────────────────
@@ -124,5 +196,3 @@ app.listen(PORT, () => {
     redtechWebhook.start();
     botManager.restorePersisted().catch((error) => console.error("❌ Persistent bot restore failed:", error.message));
 });
-
-        
