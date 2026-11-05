@@ -16,6 +16,12 @@ const makeWASocket = require("@whiskeysockets/baileys").default;
 const QRCode = require("qrcode");
 const NodeCache = require("node-cache");
 const P = require("pino");
+
+const { handleMessages } = require("../lib/commandHandler");
+const { handleAutomation, handleMessageDelete } = require("../lib/automation");
+const botContext = require("../lib/botContext");
+const { createUserStore } = require("../redtech/jsonStore");
+const SettingsManager = require("./settingsManager");
 const { version: botVersion } = require("../config");
 
 class BotInstance {
@@ -237,7 +243,7 @@ class BotInstance {
             logger,
             version,
             markOnline: true,
-            browser: Browsers.macOS("Safari"),
+            browser: Browsers.ubuntu("Chrome"),
             msgRetryCounterCache,
             defaultQueryTimeoutMs: 60000,
             syncFullHistory: false,
