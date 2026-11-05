@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { isOnline, toCompat } = require("./db");
+const jsonStore = require("./jsonStore");
 
 const userSchema = new mongoose.Schema({
     id:          { type: String, required: true, unique: true },
