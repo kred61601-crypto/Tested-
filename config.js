@@ -23,19 +23,13 @@ global.APIKeys = {
     'https://api-fgmods.ddns.net': 'fg-dylux'
 };
 
-const ownerNumbers = String(process.env.OWNER_NUMBER || process.env.OWNER || "")
-    .split(/[;,\s]+/).map(value => value.replace(/\D/g, "")).filter(Boolean);
-const admins = String(process.env.ADMINS || "")
-    .split(/[;,\s]+/).map(value => value.replace(/\D/g, "")).filter(Boolean);
-const prefixes = String(process.env.PREFIX || ".").split(",").map(value => value.trim()).filter(Boolean);
-
 module.exports = {
     WARN_COUNT: 3,
-    ownerNumbers,
-    admins,
-    prefixes,
-    processedIdLimit: Number(process.env.PROCESSED_ID_LIMIT || 1000),
     APIs: global.APIs,
     APIKeys: global.APIKeys, 
-    phoneNumber: "" // Don't Add If You Are Using Panel To Deploy
+    phoneNumber: "", // Don't Add If You Are Using Panel To Deploy
+    prefixes: (process.env.PREFIX || ".").split(",").map((v) => v.trim()).filter(Boolean),
+    processedIdLimit: Number(process.env.PROCESSED_ID_LIMIT || 2000),
+    ownerNumbers: (process.env.OWNER_NUMBER || process.env.OWNER_NUMBERS || "").split(/[ ,]+/).filter(Boolean),
+    admins: (process.env.ADMINS || "").split(/[ ,]+/).filter(Boolean)
 };
